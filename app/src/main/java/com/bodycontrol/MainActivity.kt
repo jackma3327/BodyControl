@@ -1,15 +1,22 @@
 package com.bodycontrol
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
+import androidx.core.content.ContextCompat
+import com.bodycontrol.data.PracticeRepository
+import com.bodycontrol.notify.ReminderScheduler
 import com.bodycontrol.ui.App
 
 private val LightColors = lightColorScheme(
@@ -45,8 +52,17 @@ private val DarkColors = darkColorScheme(
 )
 
 class MainActivity : ComponentActivity() {
+
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 用户选择即可，无需额外处理 */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        PracticeRepository.init(this)
+        ReminderScheduler.ensureChannel(this)
+        requestNotificationPermissionIfNeeded()
+
         enableEdgeToEdge()
         setContent {
             val colors = if (isSystemInDarkTheme()) DarkColors else LightColors
@@ -54,6 +70,18 @@ class MainActivity : ComponentActivity() {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     App()
                 }
+            }
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
     }

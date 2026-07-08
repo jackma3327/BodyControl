@@ -3,6 +3,7 @@ package com.bodycontrol.player
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import com.bodycontrol.data.PracticeRepository
 import com.bodycontrol.data.TrackItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +46,7 @@ object PlayerController {
         mediaPlayer = mp
         mp.start()
         _state.value = PlayerState(trackId = item.id, title = item.title, isPlaying = true)
+        PracticeRepository.logPractice(context, item.id, item.title)
     }
 
     fun togglePlayPause() {

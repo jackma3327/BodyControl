@@ -1,5 +1,6 @@
 package com.bodycontrol.ui
 
+import android.widget.Toast
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -35,7 +36,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Spa
@@ -62,6 +65,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bodycontrol.data.Catalog
 import com.bodycontrol.data.Category
+import com.bodycontrol.data.FitnessCatalog
+import com.bodycontrol.data.FitnessSeries
+import com.bodycontrol.data.PracticeRepository
 import com.bodycontrol.data.TrackItem
 import com.bodycontrol.player.PlayerController
 
@@ -78,46 +84,122 @@ private fun themeFor(id: String): CategoryTheme = when (id) {
 
 /* ---------- 顶层 ---------- */
 
+private enum class Tab { Home, Mine }
+
 @Composable
 fun App() {
+    var tab by remember { mutableStateOf(Tab.Home) }
     var selected by remember { mutableStateOf<Category?>(null) }
+    var showFitnessList by remember { mutableStateOf(false) }
+    var activeSeries by remember { mutableStateOf<FitnessSeries?>(null) }
     val playerState by PlayerController.state.collectAsStateWithLifecycle()
+    val records by PracticeRepository.records.collectAsStateWithLifecycle()
+    val reminders by PracticeRepository.reminders.collectAsStateWithLifecycle()
     val playing = playerState.trackId != null
-    val bottomInset = if (playing) 96.dp else 0.dp
+
+    // 底部预留：导航栏 + 播放中时的迷你播放器高度。
+    val bottomInset = 72.dp + if (playing) 84.dp else 0.dp
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        val current = selected
-        if (current == null) {
-            HomeScreen(bottomInset = bottomInset, onSelect = { selected = it })
-        } else {
-            DetailScreen(
-                category = current,
-                playingId = playerState.trackId,
-                isPlaying = playerState.isPlaying,
+        when (tab) {
+            Tab.Home -> {
+                val series = activeSeries
+                val current = selected
+                when {
+                    series != null -> FitnessPlayerScreen(
+                        series = series,
+                        seriesIndex = FitnessCatalog.series.indexOf(series),
+                        bottomInset = bottomInset,
+                        onBack = { activeSeries = null },
+                    )
+                    showFitnessList -> FitnessListScreen(
+                        bottomInset = bottomInset,
+                        onOpen = { activeSeries = it },
+                        onBack = { showFitnessList = false },
+                    )
+                    current != null -> DetailScreen(
+                        category = current,
+                        playingId = playerState.trackId,
+                        isPlaying = playerState.isPlaying,
+                        bottomInset = bottomInset,
+                        onBack = { selected = null },
+                    )
+                    else -> HomeScreen(
+                        bottomInset = bottomInset,
+                        onSelect = { selected = it },
+                        onOpenFitness = { showFitnessList = true },
+                    )
+                }
+            }
+            Tab.Mine -> MineScreen(
+                records = records,
+                reminders = reminders,
                 bottomInset = bottomInset,
-                onBack = { selected = null },
             )
         }
 
-        if (playing) {
-            MiniPlayer(
-                title = playerState.title,
-                isPlaying = playerState.isPlaying,
-                onToggle = { PlayerController.togglePlayPause() },
-                onStop = { PlayerController.stop() },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            )
+        Column(Modifier.align(Alignment.BottomCenter)) {
+            if (playing) {
+                MiniPlayer(
+                    title = playerState.title,
+                    isPlaying = playerState.isPlaying,
+                    onToggle = { PlayerController.togglePlayPause() },
+                    onStop = { PlayerController.stop() },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            BottomBar(current = tab, onSelect = { tab = it })
         }
+    }
+}
+
+/* ---------- 底部导航 ---------- */
+
+@Composable
+private fun BottomBar(current: Tab, onSelect: (Tab) -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth().shadow(16.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            BottomBarItem(Icons.Filled.Home, "练习", current == Tab.Home) { onSelect(Tab.Home) }
+            BottomBarItem(Icons.Filled.Person, "我的", current == Tab.Mine) { onSelect(Tab.Mine) }
+        }
+    }
+}
+
+@Composable
+private fun BottomBarItem(icon: ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
+    val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 28.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(26.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = tint,
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }
 
 /* ---------- 首页 ---------- */
 
 @Composable
-private fun HomeScreen(bottomInset: androidx.compose.ui.unit.Dp, onSelect: (Category) -> Unit) {
+private fun HomeScreen(
+    bottomInset: androidx.compose.ui.unit.Dp,
+    onSelect: (Category) -> Unit,
+    onOpenFitness: () -> Unit,
+) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp + bottomInset),
@@ -146,9 +228,47 @@ private fun HomeScreen(bottomInset: androidx.compose.ui.unit.Dp, onSelect: (Cate
                 )
             }
         }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            FitnessBanner(onClick = onOpenFitness)
+        }
         items(Catalog.categories, key = { it.id }) { category ->
             CategoryCard(category = category, onClick = { onSelect(category) })
         }
+    }
+}
+
+@Composable
+private fun FitnessBanner(onClick: () -> Unit) {
+    val colors = listOf(Color(0xFFF97316), Color(0xFFDB2777))
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(96.dp)
+            .shadow(10.dp, RoundedCornerShape(24.dp), spotColor = colors.last())
+            .clip(RoundedCornerShape(24.dp))
+            .background(Brush.linearGradient(colors))
+            .clickable(onClick = onClick)
+            .padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.22f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.FitnessCenter, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+        }
+        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+            Text("健身操", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            Text(
+                "跟练动图，${FitnessCatalog.series.size} 套常用动作序列",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.9f),
+            )
+        }
+        Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp))
     }
 }
 
@@ -232,7 +352,14 @@ private fun DetailScreen(
                 fallbackIcon = themeFor(category.id).icon,
                 isCurrent = item.id == playingId,
                 isPlaying = isPlaying && item.id == playingId,
-                onClick = { if (item.rawResId != null) PlayerController.play(context, item) },
+                onClick = {
+                    if (item.rawResId != null) {
+                        PlayerController.play(context, item)
+                    } else {
+                        PracticeRepository.logPractice(context, item.id, item.title)
+                        Toast.makeText(context, "已记录练习：${item.title}", Toast.LENGTH_SHORT).show()
+                    }
+                },
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
         }
@@ -310,7 +437,7 @@ private fun TrackRow(
             .shadow(if (isCurrent) 8.dp else 3.dp, RoundedCornerShape(20.dp), spotColor = categoryColors.last())
             .clip(RoundedCornerShape(20.dp))
             .background(container)
-            .then(if (hasAudio) Modifier.clickable(onClick = onClick) else Modifier)
+            .clickable(onClick = onClick)
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
