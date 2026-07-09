@@ -5,14 +5,23 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import com.bodycontrol.data.PracticeRepository
 import com.bodycontrol.data.TrackItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 data class PlayerState(
     val trackId: String? = null,
     val title: String = "",
     val isPlaying: Boolean = false,
+    val positionMs: Int = 0,
+    val durationMs: Int = 0,
 )
 
 /** 进程内单例音频播放器，基于 res/raw 资源，使用 MediaPlayer。 */
@@ -20,8 +29,39 @@ object PlayerController {
 
     private var mediaPlayer: MediaPlayer? = null
 
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var ticker: Job? = null
+
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
+
+    /** 定时刷新播放进度。 */
+    private fun startTicker() {
+        ticker?.cancel()
+        ticker = scope.launch {
+            while (isActive) {
+                val mp = mediaPlayer
+                if (mp != null && _state.value.trackId != null) {
+                    runCatching {
+                        _state.value = _state.value.copy(positionMs = mp.currentPosition)
+                    }
+                }
+                delay(500)
+            }
+        }
+    }
+
+    private fun stopTicker() {
+        ticker?.cancel()
+        ticker = null
+    }
+
+    /** 拖动进度条跳转。 */
+    fun seekTo(ms: Int) {
+        val mp = mediaPlayer ?: return
+        runCatching { mp.seekTo(ms) }
+        _state.value = _state.value.copy(positionMs = ms)
+    }
 
     /** 播放指定条目；若点击的是当前条目则切换播放/暂停。 */
     fun play(context: Context, item: TrackItem) {
@@ -41,11 +81,17 @@ object PlayerController {
                 .build()
         )
         mp.setOnCompletionListener {
-            _state.value = _state.value.copy(isPlaying = false)
+            _state.value = _state.value.copy(isPlaying = false, positionMs = _state.value.durationMs)
         }
         mediaPlayer = mp
         mp.start()
-        _state.value = PlayerState(trackId = item.id, title = item.title, isPlaying = true)
+        _state.value = PlayerState(
+            trackId = item.id,
+            title = item.title,
+            isPlaying = true,
+            durationMs = runCatching { mp.duration }.getOrDefault(0),
+        )
+        startTicker()
         PracticeRepository.logPractice(context, item.id, item.title)
     }
 
@@ -65,8 +111,13 @@ object PlayerController {
         )
         val started = runCatching {
             mp.setDataSource(path)
-            mp.setOnCompletionListener { _state.value = _state.value.copy(isPlaying = false) }
-            mp.setOnPreparedListener { it.start() }
+            mp.setOnCompletionListener {
+                _state.value = _state.value.copy(isPlaying = false, positionMs = _state.value.durationMs)
+            }
+            mp.setOnPreparedListener {
+                it.start()
+                _state.value = _state.value.copy(durationMs = runCatching { it.duration }.getOrDefault(0))
+            }
             mp.prepareAsync()
         }.isSuccess
         if (!started) {
@@ -75,6 +126,7 @@ object PlayerController {
         }
         mediaPlayer = mp
         _state.value = PlayerState(trackId = id, title = title, isPlaying = true)
+        startTicker()
         PracticeRepository.logPractice(context, id, title, category)
     }
 
@@ -90,6 +142,7 @@ object PlayerController {
     }
 
     fun stop() {
+        stopTicker()
         release()
         _state.value = PlayerState()
     }

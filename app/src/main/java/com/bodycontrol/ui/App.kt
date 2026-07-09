@@ -8,6 +8,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +61,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -172,6 +175,9 @@ fun App() {
                     MiniPlayer(
                         title = playerState.title,
                         isPlaying = playerState.isPlaying,
+                        positionMs = playerState.positionMs,
+                        durationMs = playerState.durationMs,
+                        onSeek = { PlayerController.seekTo(it) },
                         onToggle = { PlayerController.togglePlayPause() },
                         onStop = { PlayerController.stop() },
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -565,6 +571,9 @@ private fun EqualizerBars(color: Color) {
 private fun MiniPlayer(
     title: String,
     isPlaying: Boolean,
+    positionMs: Int,
+    durationMs: Int,
+    onSeek: (Int) -> Unit,
     onToggle: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
@@ -574,32 +583,92 @@ private fun MiniPlayer(
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surface,
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Brush.linearGradient(listOf(Color(0xFF34D399), Color(0xFF0E9F7E)))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isPlaying) EqualizerBars(color = Color.White)
+                    else Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+                }
+                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                    Text("正在播放", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, color = MaterialTheme.colorScheme.onSurface)
+                }
+                IconButton(onToggle) {
+                    Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = if (isPlaying) "暂停" else "播放", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
+                }
+                IconButton(onStop) {
+                    Icon(Icons.Filled.Close, contentDescription = "关闭", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            MiniSeekBar(
+                positionMs = positionMs,
+                durationMs = durationMs,
+                onSeek = onSeek,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MiniSeekBar(
+    positionMs: Int,
+    durationMs: Int,
+    onSeek: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(formatMs(positionMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(
+            Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp)
+                .height(16.dp)
+                .pointerInput(durationMs) {
+                    detectTapGestures { offset ->
+                        if (durationMs > 0) {
+                            onSeek((offset.x / size.width * durationMs).toInt().coerceIn(0, durationMs))
+                        }
+                    }
+                }
+                .pointerInput(durationMs) {
+                    detectHorizontalDragGestures { change, _ ->
+                        if (durationMs > 0) {
+                            onSeek((change.position.x / size.width * durationMs).toInt().coerceIn(0, durationMs))
+                        }
+                    }
+                },
+            contentAlignment = Alignment.CenterStart,
         ) {
             Box(
                 Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(Brush.linearGradient(listOf(Color(0xFF34D399), Color(0xFF0E9F7E)))),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (isPlaying) EqualizerBars(color = Color.White)
-                else Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
-            }
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text("正在播放", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, color = MaterialTheme.colorScheme.onSurface)
-            }
-            IconButton(onToggle) {
-                Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = if (isPlaying) "暂停" else "播放", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
-            }
-            IconButton(onStop) {
-                Icon(Icons.Filled.Close, contentDescription = "关闭", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth(fraction)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.primary),
+            )
         }
+        Text(formatMs(durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+private fun formatMs(ms: Int): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    return "%d:%02d".format(totalSec / 60, totalSec % 60)
 }
 
 @Composable
