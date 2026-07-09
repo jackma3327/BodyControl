@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Spa
@@ -65,6 +66,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bodycontrol.data.Catalog
 import com.bodycontrol.data.Category
+import com.bodycontrol.data.CustomItem
+import com.bodycontrol.data.CustomRepository
 import com.bodycontrol.data.FitnessCatalog
 import com.bodycontrol.data.FitnessSeries
 import com.bodycontrol.data.PracticeRepository
@@ -91,7 +94,7 @@ private fun themeFor(id: String): CategoryTheme = when (id) {
 
 /* ---------- 顶层 ---------- */
 
-private enum class Tab { Home, Mine }
+private enum class Tab { Home, Custom, Mine }
 
 @Composable
 fun App() {
@@ -99,13 +102,18 @@ fun App() {
     var selected by remember { mutableStateOf<Category?>(null) }
     var showFitnessList by remember { mutableStateOf(false) }
     var activeSeries by remember { mutableStateOf<FitnessSeries?>(null) }
+    var customVideo by remember { mutableStateOf<CustomItem?>(null) }
     val playerState by PlayerController.state.collectAsStateWithLifecycle()
     val records by PracticeRepository.records.collectAsStateWithLifecycle()
     val reminders by PracticeRepository.reminders.collectAsStateWithLifecycle()
+    val customItems by CustomRepository.items.collectAsStateWithLifecycle()
     val playing = playerState.trackId != null
 
+    // 全屏视频时隐藏底部栏与迷你播放器。
+    val immersive = tab == Tab.Custom && customVideo != null
+
     // 底部预留：导航栏 + 播放中时的迷你播放器高度。
-    val bottomInset = 72.dp + if (playing) 84.dp else 0.dp
+    val bottomInset = if (immersive) 0.dp else 72.dp + if (playing) 84.dp else 0.dp
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         when (tab) {
@@ -139,6 +147,18 @@ fun App() {
                     )
                 }
             }
+            Tab.Custom -> {
+                val video = customVideo
+                if (video != null) {
+                    VideoPlayerScreen(item = video, onBack = { customVideo = null })
+                } else {
+                    CustomScreen(
+                        mediaItems = customItems,
+                        bottomInset = bottomInset,
+                        onPlayVideo = { customVideo = it },
+                    )
+                }
+            }
             Tab.Mine -> MineScreen(
                 records = records,
                 reminders = reminders,
@@ -146,17 +166,19 @@ fun App() {
             )
         }
 
-        Column(Modifier.align(Alignment.BottomCenter)) {
-            if (playing) {
-                MiniPlayer(
-                    title = playerState.title,
-                    isPlaying = playerState.isPlaying,
-                    onToggle = { PlayerController.togglePlayPause() },
-                    onStop = { PlayerController.stop() },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
+        if (!immersive) {
+            Column(Modifier.align(Alignment.BottomCenter)) {
+                if (playing) {
+                    MiniPlayer(
+                        title = playerState.title,
+                        isPlaying = playerState.isPlaying,
+                        onToggle = { PlayerController.togglePlayPause() },
+                        onStop = { PlayerController.stop() },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+                BottomBar(current = tab, onSelect = { tab = it })
             }
-            BottomBar(current = tab, onSelect = { tab = it })
         }
     }
 }
@@ -174,6 +196,7 @@ private fun BottomBar(current: Tab, onSelect: (Tab) -> Unit) {
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
             BottomBarItem(Icons.Filled.Home, "练习", current == Tab.Home) { onSelect(Tab.Home) }
+            BottomBarItem(Icons.Filled.VideoLibrary, "自定义", current == Tab.Custom) { onSelect(Tab.Custom) }
             BottomBarItem(Icons.Filled.Person, "我的", current == Tab.Mine) { onSelect(Tab.Mine) }
         }
     }
@@ -186,7 +209,7 @@ private fun BottomBarItem(icon: ImageVector, label: String, selected: Boolean, o
         Modifier
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 28.dp, vertical = 6.dp),
+            .padding(horizontal = 22.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(26.dp))
@@ -365,7 +388,7 @@ private fun DetailScreen(
                     if (item.rawResId != null) {
                         PlayerController.play(context, item)
                     } else {
-                        PracticeRepository.logPractice(context, item.id, item.title)
+                        PracticeRepository.logPractice(context, item.id, item.title, category.title)
                         Toast.makeText(context, "已记录练习：${item.title}", Toast.LENGTH_SHORT).show()
                     }
                 },

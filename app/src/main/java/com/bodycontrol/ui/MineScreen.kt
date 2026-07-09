@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,13 +25,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,8 +52,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.bodycontrol.data.CustomRepository
 import com.bodycontrol.data.PracticeRecord
 import com.bodycontrol.data.PracticeRepository
+import com.bodycontrol.data.PracticeTypes
 import com.bodycontrol.data.Reminder
 import com.bodycontrol.notify.ReminderScheduler
 import java.time.LocalDate
@@ -60,6 +73,9 @@ fun MineScreen(
     bottomInset: Dp,
 ) {
     val context = LocalContext.current
+    val customItems by CustomRepository.items.collectAsStateWithLifecycle()
+    var showLogDialog by remember { mutableStateOf(false) }
+    var showReminderDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
@@ -88,35 +104,176 @@ fun MineScreen(
                         ReminderScheduler.cancel(context, r)
                         PracticeRepository.removeReminder(context, r.id)
                     },
-                    onAdd = {
-                        val now = Calendar.getInstance()
-                        TimePickerDialog(
-                            context,
-                            { _, hour, minute ->
-                                val reminder = Reminder(
-                                    id = PracticeRepository.nextReminderId(context),
-                                    hour = hour,
-                                    minute = minute,
-                                    enabled = true,
-                                )
-                                PracticeRepository.upsertReminder(context, reminder)
-                                ReminderScheduler.schedule(context, reminder)
-                            },
-                            now.get(Calendar.HOUR_OF_DAY),
-                            now.get(Calendar.MINUTE),
-                            true,
-                        ).show()
-                    },
+                    onAdd = { showReminderDialog = true },
                 )
             }
         }
 
         item {
             Section("最近记录") {
+                LogPracticeButton(onClick = { showLogDialog = true })
                 RecentRecords(records)
             }
         }
     }
+
+    if (showLogDialog) {
+        LogPracticeDialog(
+            customTitles = customItems.map { it.title },
+            onDismiss = { showLogDialog = false },
+            onPick = { title, category ->
+                PracticeRepository.addManualPractice(context, title, category)
+                showLogDialog = false
+            },
+        )
+    }
+
+    if (showReminderDialog) {
+        AddReminderDialog(
+            onDismiss = { showReminderDialog = false },
+            onPickTime = { label ->
+                showReminderDialog = false
+                val now = Calendar.getInstance()
+                TimePickerDialog(
+                    context,
+                    { _, hour, minute ->
+                        val reminder = Reminder(
+                            id = PracticeRepository.nextReminderId(context),
+                            hour = hour,
+                            minute = minute,
+                            enabled = true,
+                            label = label,
+                        )
+                        PracticeRepository.upsertReminder(context, reminder)
+                        ReminderScheduler.schedule(context, reminder)
+                    },
+                    now.get(Calendar.HOUR_OF_DAY),
+                    now.get(Calendar.MINUTE),
+                    true,
+                ).show()
+            },
+        )
+    }
+}
+
+/* ---------- 手动打卡 ---------- */
+
+@Composable
+private fun LogPracticeButton(onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 10.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Brush.linearGradient(heroColors))
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Add, contentDescription = null, tint = Color.White)
+        Text(
+            "记录一次练习",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+            modifier = Modifier.padding(start = 6.dp),
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LogPracticeDialog(
+    customTitles: List<String>,
+    onDismiss: () -> Unit,
+    onPick: (title: String, category: String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("记录练习") },
+        text = {
+            Column {
+                Text(
+                    "选择运动种类",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PracticeTypes.forEach { type ->
+                        PickChip(type) { onPick(type, type) }
+                    }
+                }
+                if (customTitles.isNotEmpty()) {
+                    Text(
+                        "我的自定义",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 14.dp, bottom = 6.dp),
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        customTitles.forEach { title ->
+                            PickChip(title) { onPick(title, "自定义") }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+@Composable
+private fun PickChip(text: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+@Composable
+private fun AddReminderDialog(
+    onDismiss: () -> Unit,
+    onPickTime: (label: String) -> Unit,
+) {
+    var label by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("新建提醒") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    singleLine = true,
+                    label = { Text("提醒内容（可选）") },
+                    placeholder = { Text("如：晚间拉伸") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "下一步选择每天提醒的时间",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onPickTime(label.trim()) }) {
+                Icon(Icons.Filled.EditCalendar, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("  选择时间")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 /* ---------- 顶部统计 ---------- */
@@ -414,13 +571,30 @@ private fun RecentRecords(records: List<PracticeRecord>) {
                         .clip(CircleShape)
                         .background(Brush.linearGradient(heroColors)),
                 )
-                Text(
-                    record.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f).padding(start = 14.dp),
-                )
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text(
+                        record.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
+                    if (record.category.isNotBlank()) {
+                        Box(
+                            Modifier
+                                .padding(top = 4.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                record.category,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
                 Text(
                     java.time.Instant.ofEpochMilli(record.timestamp)
                         .atZone(java.time.ZoneId.systemDefault())

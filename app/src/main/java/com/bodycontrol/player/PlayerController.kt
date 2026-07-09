@@ -49,6 +49,35 @@ object PlayerController {
         PracticeRepository.logPractice(context, item.id, item.title)
     }
 
+    /** 播放自定义音频文件（App 私有目录）。点击当前项则切换播放/暂停。 */
+    fun playFile(context: Context, id: String, title: String, path: String, category: String = "自定义") {
+        if (_state.value.trackId == id && mediaPlayer != null) {
+            togglePlayPause()
+            return
+        }
+        release()
+        val mp = MediaPlayer()
+        mp.setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+        )
+        val started = runCatching {
+            mp.setDataSource(path)
+            mp.setOnCompletionListener { _state.value = _state.value.copy(isPlaying = false) }
+            mp.setOnPreparedListener { it.start() }
+            mp.prepareAsync()
+        }.isSuccess
+        if (!started) {
+            mp.release()
+            return
+        }
+        mediaPlayer = mp
+        _state.value = PlayerState(trackId = id, title = title, isPlaying = true)
+        PracticeRepository.logPractice(context, id, title, category)
+    }
+
     fun togglePlayPause() {
         val mp = mediaPlayer ?: return
         if (mp.isPlaying) {

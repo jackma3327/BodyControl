@@ -15,6 +15,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
+import com.bodycontrol.data.CustomRepository
 import com.bodycontrol.data.PracticeRepository
 import com.bodycontrol.notify.ReminderScheduler
 import com.bodycontrol.ui.App
@@ -60,6 +61,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         PracticeRepository.init(this)
+        CustomRepository.init(this)
         ReminderScheduler.ensureChannel(this)
         requestNotificationPermissionIfNeeded()
 

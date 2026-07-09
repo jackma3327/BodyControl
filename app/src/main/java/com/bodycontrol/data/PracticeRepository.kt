@@ -16,10 +16,17 @@ data class PracticeRecord(
     val trackId: String,
     val title: String,
     val timestamp: Long,
+    /** 运动种类，例如 瑜伽 / 拉伸 / 自定义，可为空。 */
+    val category: String = "",
 ) {
     val date: LocalDate
         get() = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
 }
+
+/** 内置的运动种类，供手动打卡选择。 */
+val PracticeTypes: List<String> = listOf(
+    "瑜伽", "气功", "呼吸法", "拉伸", "有氧", "力量", "冥想", "跑步", "散步", "其他",
+)
 
 /** 一条每日练习提醒。 */
 data class Reminder(
@@ -61,11 +68,20 @@ object PracticeRepository {
     /* ---------- 练习记录 ---------- */
 
     /** 记录一次练习。同一条目同一天只记录一次，避免重复播放刷记录。 */
-    fun logPractice(context: Context, trackId: String, title: String) {
+    fun logPractice(context: Context, trackId: String, title: String, category: String = "") {
         init(context)
         val today = LocalDate.now()
         if (_records.value.any { it.trackId == trackId && it.date == today }) return
-        val updated = _records.value + PracticeRecord(trackId, title, System.currentTimeMillis())
+        val updated = _records.value + PracticeRecord(trackId, title, System.currentTimeMillis(), category)
+        _records.value = updated
+        prefs?.let { saveRecords(it, updated) }
+    }
+
+    /** 手动打卡：始终新增一条记录（允许同类多次），用于「记录练习」与「添加到今日练习」。 */
+    fun addManualPractice(context: Context, title: String, category: String) {
+        init(context)
+        val trackId = "manual_${System.currentTimeMillis()}"
+        val updated = _records.value + PracticeRecord(trackId, title, System.currentTimeMillis(), category)
         _records.value = updated
         prefs?.let { saveRecords(it, updated) }
     }
@@ -107,6 +123,7 @@ object PracticeRepository {
                     trackId = o.getString("trackId"),
                     title = o.getString("title"),
                     timestamp = o.getLong("timestamp"),
+                    category = o.optString("category", ""),
                 )
             }
         }.getOrDefault(emptyList())
@@ -120,6 +137,7 @@ object PracticeRepository {
                     .put("trackId", r.trackId)
                     .put("title", r.title)
                     .put("timestamp", r.timestamp)
+                    .put("category", r.category)
             )
         }
         p.edit().putString(KEY_RECORDS, arr.toString()).apply()
