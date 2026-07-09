@@ -3,6 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// 固定签名：CI 通过环境变量提供 keystore（来自 GitHub Secrets 解码），
+// 使每次构建的 APK 签名一致，可直接覆盖安装、不丢数据。
+// 本地无该环境变量时回退到默认 debug 签名。
+val signingStoreFile: String? = System.getenv("SIGNING_STORE_FILE")
+val signingKeyPassword: String? = System.getenv("SIGNING_KEY_PASSWORD")
+val hasStableSigning =
+    !signingStoreFile.isNullOrBlank() && !signingKeyPassword.isNullOrBlank() && file(signingStoreFile).exists()
+
 android {
     namespace = "com.bodycontrol"
     compileSdk = 34
@@ -15,13 +23,28 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        create("shared") {
+            if (hasStableSigning) {
+                storeFile = file(signingStoreFile!!)
+                storePassword = signingKeyPassword
+                keyAlias = "bodycontrol"
+                keyPassword = signingKeyPassword
+            }
+        }
+    }
+
     buildTypes {
+        getByName("debug") {
+            if (hasStableSigning) signingConfig = signingConfigs.getByName("shared")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasStableSigning) signingConfig = signingConfigs.getByName("shared")
         }
     }
 
