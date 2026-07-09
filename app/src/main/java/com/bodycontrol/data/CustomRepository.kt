@@ -80,6 +80,17 @@ object CustomRepository {
         return item
     }
 
+    /** 从备份合并恢复自定义清单（按 id 去重，导入项覆盖同 id）。 */
+    fun restore(context: Context, importedItems: List<CustomItem>) {
+        init(context)
+        val byId = LinkedHashMap<String, CustomItem>()
+        _items.value.forEach { byId[it.id] = it }
+        importedItems.forEach { byId[it.id] = it }
+        val merged = byId.values.toList()
+        _items.value = merged
+        prefs?.let { save(it, merged) }
+    }
+
     fun removeItem(context: Context, id: String) {
         init(context)
         _items.value.firstOrNull { it.id == id }?.let { runCatching { it.file(context).delete() } }

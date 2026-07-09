@@ -77,6 +77,34 @@ object PracticeRepository {
         prefs?.let { saveRecords(it, updated) }
     }
 
+    /** 从备份合并恢复记录与提醒（去重、保留已有数据）。 */
+    fun restore(
+        context: Context,
+        importedRecords: List<PracticeRecord>,
+        importedReminders: List<Reminder>,
+    ) {
+        init(context)
+        val mergedRecords = (_records.value + importedRecords)
+            .distinctBy { "${it.trackId}@${it.timestamp}" }
+            .sortedBy { it.timestamp }
+        _records.value = mergedRecords
+        prefs?.let { saveRecords(it, mergedRecords) }
+
+        val byId = LinkedHashMap<Int, Reminder>()
+        _reminders.value.forEach { byId[it.id] = it }
+        importedReminders.forEach { byId[it.id] = it }
+        val mergedReminders = byId.values.sortedWith(compareBy({ it.hour }, { it.minute }))
+        _reminders.value = mergedReminders
+        prefs?.let { saveReminders(it, mergedReminders) }
+
+        val maxId = mergedReminders.maxOfOrNull { it.id } ?: 0
+        prefs?.let { p ->
+            if (maxId + 1 > p.getInt(KEY_NEXT_ID, 1)) {
+                p.edit().putInt(KEY_NEXT_ID, maxId + 1).apply()
+            }
+        }
+    }
+
     /** 手动打卡：始终新增一条记录（允许同类多次），用于「记录练习」与「添加到今日练习」。 */
     fun addManualPractice(context: Context, title: String, category: String) {
         init(context)

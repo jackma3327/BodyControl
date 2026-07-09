@@ -3,6 +3,9 @@ package com.bodycontrol.ui
 import android.app.TimePickerDialog
 import android.content.Intent
 import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,11 +26,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,12 +59,16 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.bodycontrol.data.BackupManager
 import com.bodycontrol.data.CustomRepository
 import com.bodycontrol.data.PracticeRecord
 import com.bodycontrol.data.PracticeRepository
 import com.bodycontrol.data.PracticeTypes
 import com.bodycontrol.data.Reminder
 import com.bodycontrol.notify.ReminderScheduler
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -73,9 +83,44 @@ fun MineScreen(
     bottomInset: Dp,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val customItems by CustomRepository.items.collectAsStateWithLifecycle()
     var showLogDialog by remember { mutableStateOf(false) }
     var showReminderDialog by remember { mutableStateOf(false) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                val ok = runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use { BackupManager.export(context, it) } ?: false
+                }.getOrDefault(false)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, if (ok) "备份已导出" else "导出失败", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                val ok = runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { BackupManager.import(context, it) } ?: false
+                }.getOrDefault(false)
+                withContext(Dispatchers.Main) {
+                    if (ok) {
+                        // 重新注册导入后的提醒闹钟
+                        PracticeRepository.reminders.value.forEach { ReminderScheduler.schedule(context, it) }
+                    }
+                    Toast.makeText(context, if (ok) "已从备份恢复" else "导入失败", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
@@ -105,6 +150,15 @@ fun MineScreen(
                         PracticeRepository.removeReminder(context, r.id)
                     },
                     onAdd = { showReminderDialog = true },
+                )
+            }
+        }
+
+        item {
+            Section("备份与恢复") {
+                BackupButtons(
+                    onExport = { exportLauncher.launch("bodycontrol-backup-${LocalDate.now()}.zip") },
+                    onImport = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
                 )
             }
         }
@@ -177,6 +231,54 @@ private fun LogPracticeButton(onClick: () -> Unit) {
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             color = Color.White,
+            modifier = Modifier.padding(start = 6.dp),
+        )
+    }
+}
+
+@Composable
+private fun BackupButtons(onExport: () -> Unit, onImport: () -> Unit) {
+    Column {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            BackupButton(Icons.Filled.Backup, "导出备份", Modifier.weight(1f), filled = true, onClick = onExport)
+            BackupButton(Icons.Filled.Restore, "导入恢复", Modifier.weight(1f), filled = false, onClick = onImport)
+        }
+        Text(
+            "导出为 zip（含记录·提醒·自定义媒体），换手机或卸载前保存，重装后可导入恢复。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp, start = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun BackupButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    filled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .then(
+                if (filled) Modifier.background(Brush.linearGradient(heroColors))
+                else Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val tint = if (filled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = tint,
             modifier = Modifier.padding(start = 6.dp),
         )
     }
