@@ -1,6 +1,8 @@
 package com.bodycontrol.ui
 
 import android.app.TimePickerDialog
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +24,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -36,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.core.app.NotificationManagerCompat
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bodycontrol.data.PracticeRecord
@@ -72,6 +76,7 @@ fun MineScreen(
 
         item {
             Section("练习提醒") {
+                NotificationHint()
                 ReminderList(
                     reminders = reminders,
                     onToggle = { r ->
@@ -251,6 +256,42 @@ private fun WeekStrip(records: List<PracticeRecord>) {
 }
 
 /* ---------- 提醒列表 ---------- */
+
+@Composable
+private fun NotificationHint() {
+    val context = LocalContext.current
+    if (NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 10.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .clickable {
+                runCatching {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    )
+                }
+            }
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.NotificationsOff,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier.size(22.dp),
+        )
+        Text(
+            "通知未开启，提醒将无法送达 · 点此开启",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier.padding(start = 10.dp),
+        )
+    }
+}
 
 @Composable
 private fun ReminderList(

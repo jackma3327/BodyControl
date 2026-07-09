@@ -75,6 +75,13 @@ import com.bodycontrol.player.PlayerController
 
 private data class CategoryTheme(val icon: ImageVector, val colors: List<Color>)
 
+private fun greeting(): String = when (java.time.LocalTime.now().hour) {
+    in 5..10 -> "早上好"
+    in 11..13 -> "中午好"
+    in 14..18 -> "下午好"
+    else -> "晚上好"
+}
+
 private fun themeFor(id: String): CategoryTheme = when (id) {
     "yoga" -> CategoryTheme(Icons.Filled.SelfImprovement, listOf(Color(0xFF34D399), Color(0xFF0E9F7E)))
     "qigong" -> CategoryTheme(Icons.Filled.Spa, listOf(Color(0xFFA78BFA), Color(0xFF7C3AED)))
@@ -126,6 +133,7 @@ fun App() {
                     )
                     else -> HomeScreen(
                         bottomInset = bottomInset,
+                        todayCount = records.count { it.date == java.time.LocalDate.now() },
                         onSelect = { selected = it },
                         onOpenFitness = { showFitnessList = true },
                     )
@@ -197,6 +205,7 @@ private fun BottomBarItem(icon: ImageVector, label: String, selected: Boolean, o
 @Composable
 private fun HomeScreen(
     bottomInset: androidx.compose.ui.unit.Dp,
+    todayCount: Int,
     onSelect: (Category) -> Unit,
     onOpenFitness: () -> Unit,
 ) {
@@ -210,7 +219,7 @@ private fun HomeScreen(
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(Modifier.padding(top = 20.dp, bottom = 6.dp)) {
                 Text(
-                    "你好",
+                    greeting(),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -221,7 +230,7 @@ private fun HomeScreen(
                     color = MaterialTheme.colorScheme.onBackground,
                 )
                 Text(
-                    "选择今天的练习",
+                    if (todayCount > 0) "今天已练习 $todayCount 次，继续保持 💪" else "选择今天的练习开始吧",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp),

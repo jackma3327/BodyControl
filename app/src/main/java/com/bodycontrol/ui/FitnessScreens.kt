@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -100,7 +100,6 @@ fun FitnessListScreen(
     onBack: () -> Unit,
 ) {
     val loader = rememberGifLoader()
-    val context = LocalContext.current
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 16.dp + bottomInset),
@@ -242,8 +241,8 @@ fun FitnessPlayerScreen(
     var running by remember { mutableStateOf(true) }
     var finished by remember { mutableStateOf(false) }
 
-    val tone = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 100) }
-    DisposableEffect(Unit) { onDispose { tone.release() } }
+    val tone = remember { runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 100) }.getOrNull() }
+    DisposableEffect(Unit) { onDispose { tone?.release() } }
 
     fun goTo(index: Int) {
         currentIndex = index.coerceIn(0, moves.lastIndex)
@@ -259,19 +258,20 @@ fun FitnessPlayerScreen(
             remaining -= 1
         }
         // 本动作结束：提示音 + 切换
-        tone.startTone(ToneGenerator.TONE_PROP_BEEP, 350)
+        tone?.startTone(ToneGenerator.TONE_PROP_BEEP, 350)
         if (currentIndex < moves.lastIndex) {
             currentIndex += 1
             remaining = durationSec
         } else {
             running = false
             finished = true
-            tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 700)
+            tone?.startTone(ToneGenerator.TONE_PROP_BEEP2, 700)
             PracticeRepository.logPractice(context, "fitness_${series.id}", series.title)
         }
     }
 
     val move = moves[currentIndex]
+    val elapsedFraction = if (durationSec > 0) (durationSec - remaining).toFloat() / durationSec else 0f
 
     Column(
         Modifier
@@ -301,12 +301,12 @@ fun FitnessPlayerScreen(
             }
         }
 
-        // GIF 画面
+        // GIF 画面：占满剩余空间，计时与动作名以浮层呈现
         Box(
             Modifier
                 .fillMaxWidth()
+                .weight(1f)
                 .padding(horizontal = 16.dp)
-                .aspectRatio(1f)
                 .clip(RoundedCornerShape(24.dp))
                 .background(Color.Black),
             contentAlignment = Alignment.Center,
@@ -318,6 +318,41 @@ fun FitnessPlayerScreen(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
+
+            // 计时浮层
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+            ) {
+                Text(formatTime(remaining), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            }
+
+            // 动作名 + 进度点浮层
+            Column(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f))))
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            ) {
+                Text(move.title, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Row(Modifier.padding(top = 8.dp)) {
+                    moves.forEachIndexed { i, _ ->
+                        Box(
+                            Modifier
+                                .padding(end = 5.dp)
+                                .size(if (i == currentIndex) 9.dp else 6.dp)
+                                .clip(CircleShape)
+                                .background(if (i <= currentIndex) Color.White else Color.White.copy(alpha = 0.35f)),
+                        )
+                    }
+                }
+            }
+
             if (finished) {
                 Box(
                     Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)),
@@ -343,13 +378,31 @@ fun FitnessPlayerScreen(
             }
         }
 
-        // 动作名 + 左右切换
+        // 进度条（本动作已完成比例）
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, top = 14.dp)
+                .height(6.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(elapsedFraction)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(50))
+                    .background(Brush.linearGradient(colors)),
+            )
+        }
+
+        // 控制：上一个 / 播放暂停 / 下一个
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(vertical = 18.dp),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             SwitchButton(
                 icon = Icons.Filled.ChevronLeft,
@@ -358,14 +411,34 @@ fun FitnessPlayerScreen(
                 onClick = { goTo(currentIndex - 1) },
                 contentDescription = "上一个动作",
             )
-            Text(
-                move.title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
+            Box(
+                Modifier
+                    .padding(horizontal = 28.dp)
+                    .size(76.dp)
+                    .shadow(10.dp, CircleShape, spotColor = colors.last())
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(colors))
+                    .clickable {
+                        if (finished) {
+                            goTo(0)
+                            running = true
+                        } else {
+                            running = !running
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    when {
+                        finished -> Icons.Filled.Refresh
+                        running -> Icons.Filled.Pause
+                        else -> Icons.Filled.PlayArrow
+                    },
+                    contentDescription = if (running) "暂停" else "开始",
+                    tint = Color.White,
+                    modifier = Modifier.size(38.dp),
+                )
+            }
             SwitchButton(
                 icon = Icons.Filled.ChevronRight,
                 enabled = currentIndex < moves.lastIndex,
@@ -374,69 +447,6 @@ fun FitnessPlayerScreen(
                 contentDescription = "下一个动作",
             )
         }
-
-        // 倒计时
-        Text(
-            formatTime(remaining),
-            fontSize = 56.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = colors.last(),
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-
-        // 进度点
-        Row(
-            Modifier.fillMaxWidth().padding(top = 12.dp),
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            moves.forEachIndexed { i, _ ->
-                Box(
-                    Modifier
-                        .padding(horizontal = 3.dp)
-                        .size(if (i == currentIndex) 10.dp else 7.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (i <= currentIndex) colors.last()
-                            else MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                )
-            }
-        }
-
-        Spacer(Modifier.height(20.dp))
-
-        // 播放/暂停
-        Box(
-            Modifier
-                .align(Alignment.CenterHorizontally)
-                .size(72.dp)
-                .shadow(10.dp, CircleShape, spotColor = colors.last())
-                .clip(CircleShape)
-                .background(Brush.linearGradient(colors))
-                .clickable {
-                    if (finished) {
-                        goTo(0)
-                        running = true
-                    } else {
-                        running = !running
-                    }
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                when {
-                    finished -> Icons.Filled.Refresh
-                    running -> Icons.Filled.Pause
-                    else -> Icons.Filled.PlayArrow
-                },
-                contentDescription = if (running) "暂停" else "开始",
-                tint = Color.White,
-                modifier = Modifier.size(36.dp),
-            )
-        }
-
-        Spacer(Modifier.height(20.dp))
 
         // 单个动作时长
         Text(
