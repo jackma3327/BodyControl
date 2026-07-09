@@ -382,7 +382,7 @@ fun FitnessPlayerScreen(
         Box(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, top = 14.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 14.dp)
                 .height(6.dp)
                 .clip(RoundedCornerShape(50))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
@@ -456,7 +456,7 @@ fun FitnessPlayerScreen(
             modifier = Modifier.padding(start = 20.dp),
         )
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, top = 8.dp),
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             durationOptions.forEach { sec ->
